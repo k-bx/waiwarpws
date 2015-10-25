@@ -2,21 +2,28 @@
 
 module Main where
 
-import           Control.Concurrent (threadDelay)
-import           Control.Monad      (forM_)
-import           Data.Text          (Text)
-import qualified Network.WebSockets as WS
-import           SlaveThread        (fork)
+import           Control.Concurrent         (threadDelay)
+import           Control.Concurrent.Async
+import           Control.Exception.Enclosed
+import           Data.Text                  (Text)
+import           Data.Traversable
+import qualified Network.WebSockets         as WS
 
 main :: IO ()
 main = do
     putStrLn "Forking clients"
-    forM_ ([1..1000]::[Int]) $ \_ -> fork $ do
-        WS.runClient "0.0.0.0" 9160 "/" clientApp
-    threadDelay 10000000
+    ts <- forM ([1..1000]::[Int]) $ \_ -> do
+        t <- async (logErrors (WS.runClient "0.0.0.0" 9160 "/" clientApp))
+        threadDelay 500
+        return t
+    mapM_ wait ts
     putStrLn "Done"
 
 clientApp :: WS.ClientApp ()
 clientApp conn = do
     WS.sendTextData conn ("Hello, server!"::Text)
-    threadDelay 1000000
+
+logErrors :: IO () -> IO ()
+logErrors f = catchAny f onErr
+  where
+    onErr e = putStrLn ("Computation error: " ++ show e)
